@@ -1,6 +1,4 @@
 module.exports = app => {
-    const publicProfiles = ["Administrador", "Operador", "Operador_Plano"]
-
     const get = async (model, req, res) => {
         try {
             const page = parseInt(req.query.page) || 0
@@ -17,8 +15,7 @@ module.exports = app => {
             const sort = getSort(req)
             const where = getWhere(req)
 
-            adjustWhereToModel(model, where)
-            adjustWhereMasterUser(model, req, where)
+            adjustWhere(model, req, where)
 
             const count = await model.countDocuments(where)
             const models = await model.find(where, getFields(req), {skip, limit}).lean().populate(populate).sort(sort)
@@ -33,28 +30,6 @@ module.exports = app => {
             return res.status(500).json({error:"Error ao consultar registros"})
         }
     }
-    const getPromise = (model, req, res) => {
-        return new Promise(async (resolve, reject)=>{
-            try {
-                const page = parseInt(req.query.page) || 0
-                let limit = parseInt(req.query.limit) || 100
-                let skip = parseInt(req.query.offset) || 0
-
-                if(page && page > 0) skip = limit * (page-1)
-                if(limit > 10000) limit = 10000
-                if(limit < 1) limit = 1
-
-
-                if(skip < 0) skip = 0
-                const count = await model.find(getWhere(req), {_id:1}).count()
-                const models = await model.find(getWhere(req), getFields(req), {skip, limit})
-                resolve({count, limit, data:models||[]})
-            } catch (e) {
-                reject(e)
-            }
-        })
-    }
-
     const save = async (model, req, res, autoReturn = true) => {
         let params = getParams(req.body)
         if(req.user) {
@@ -90,21 +65,13 @@ module.exports = app => {
 
     const update = async (model, req, res, remove = false, autoReturn = true) =>
     {
-        if(model.hasOwnProperty('requiredFields') && !remove)
-        {
-            if(!validation(req, res, model.requiredFields()))
-            {
-                return
-            }
-        }
         const userId = req.user._id
         let where = {'_id': req.params.id, '_company': req.user._company}
         if(req.ignoreFields){
             req.ignoreFields.split(',').map( field => {delete where[field]})
         }
 
-        adjustWhereToModel(model, where)
-        adjustWhereMasterUser(model, req, where)
+        adjustWhere(model, req, where)
 
         try
         {
@@ -116,7 +83,6 @@ module.exports = app => {
             }
 
             for (let key in req.body) {
-                // if(key!='_id' && req.body[key]!='' && !Array.isArray(key))
                 if(key!='_id' && !Array.isArray(key))
                 find[key]=req.body[key]
             }
@@ -147,8 +113,7 @@ module.exports = app => {
     const getById = async (model, req, res, autoReturn = true) => {
         const where = getWhere(req)
         where._id = req.params.id
-        adjustWhereToModel(model, where)
-        adjustWhereMasterUser(model, req, where)
+        adjustWhere(model, req, where)
         if(where._id.length != 24)
         {
             if(autoReturn) return res.status(400).json({error:"Invalid ID"})
@@ -257,19 +222,6 @@ module.exports = app => {
         return params
     }
 
-    const validation = (req, res, fields = []) =>
-    {
-        for(field in fields)
-        {
-            if(!req.body.hasOwnProperty(field) || !req.body[field])
-            {
-                res.status(400).send(`Campo '${fields[field]}' não informado ou inválido`)
-                return false
-            }
-        }
-        return true
-    }
-
     const adjustIgnoreFields = (req, models) =>
     {
         if(!Array.isArray(models)) models = [models]
@@ -285,19 +237,14 @@ module.exports = app => {
             })
         }
     }
-
-    const adjustWhereToModel = (model, where) =>
+    
+    const adjustWhere = (model, req, where) =>
     {
         if(model.modelName=='Company')
         {
             delete where._company
         }
-        return where
-    }
-
-    const adjustWhereMasterUser = (model, req, where) =>
-    {
-        if(req.user.profile && req.user.profile.master && (model.modelName=='Company' || model.modelName=='User')
+        if(req.user.profile && req.user.profile.master && (model.modelName=='Company' || model.modelName=='User'))
         {
             delete where._company
         }
@@ -488,5 +435,5 @@ module.exports = app => {
         return findList
     }
 
-    return {get,getPromise, save, update, remove, getParams, getWhere, getFields, getById, createOrUpdateMany, deleteMany, getDatabaseId}
+    return {get, save, update, remove, getParams, getWhere, getFields, getById, createOrUpdateMany, deleteMany, getDatabaseId}
 }
